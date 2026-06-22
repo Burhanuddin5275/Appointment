@@ -18,7 +18,7 @@ const pakistanRegions = {
 export default function Onboarding() {
   const { user, refreshRole } = useAuth();
   const navigate = useNavigate();
-  const [role, setRole] = useState("patient"); 
+  const [role, setRole] = useState("patient");
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("Male");
@@ -33,7 +33,7 @@ export default function Onboarding() {
   const [experienceYears, setExperienceYears] = useState("");
   const [appointmentFees, setAppointmentFees] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
-  
+
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [error, setError] = useState("");
@@ -48,7 +48,7 @@ export default function Onboarding() {
         setName(data.name || "");
         setAge(data.age || "");
         setGender(data.gender || "Male");
-        
+
         // Handle loading formatted fields safely
         if (data.phone) {
           setPhone(data.phone.startsWith("+92") ? data.phone.replace("+92", "") : data.phone);
@@ -70,7 +70,7 @@ export default function Onboarding() {
   const handleCnicChange = (e) => {
     let input = e.target.value.replace(/\D/g, ""); // Remove non-digits
     if (input.length > 13) input = input.substr(0, 13); // Max 13 digits
-    
+
     let formatted = "";
     if (input.length > 0) {
       formatted += input.substr(0, 5);
@@ -129,7 +129,7 @@ export default function Onboarding() {
       city,
       address,
       role,
-      status: accountStatus 
+      status: accountStatus
     };
 
     const tailoredPayload = role === "doctor" ? {
@@ -163,9 +163,9 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 md:p-8 antialiased text-left">
       <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        <div className="bg-slate-900 p-6 text-white">
-          <h2 className="text-lg font-black tracking-tight uppercase">Account Onboarding Parameters</h2>
-          <p className="text-slate-400 text-xs mt-1">Please fill in verified structural details mapping onto cloud ledger nodes verification pipelines.</p>
+        <div className="bg-blue-600 p-6 text-white">
+          <h2 className="text-lg font-black tracking-tight uppercase">Account Onboarding Profile</h2>
+          <p className="text-white/80 text-xs mt-1">Please fill in your details to complete your account setup</p>
         </div>
 
         <form onSubmit={handleFormSubmission} className="p-6 space-y-5">
@@ -189,19 +189,19 @@ export default function Onboarding() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Full Legal Name</label>
-              <input type="text" required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={name} onChange={(e) => setName(e.target.value)} />
+              <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
+              <input type="text" required placeholder="Full Name" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1">National CNIC (xxxxx-xxxxxxx-x)</label>
-              <input type="text" required placeholder="12345-1234567-1" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none focus:border-indigo-500" value={cnic} onChange={handleCnicChange} />
+              <input type="text" required placeholder="42201-1234567-1" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-none focus:border-indigo-500" value={cnic} onChange={handleCnicChange} />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1">Age</label>
-              <input type="number" required min="1" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={age} onChange={(e) => setAge(e.target.value)} />
+              <input type="number" required placeholder="Age" min="18" max="100" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={age} onChange={(e) => setAge(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1">Gender</label>
@@ -223,47 +223,66 @@ export default function Onboarding() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Administrative State / Province</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">State / Province</label>
               <select required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={state} onChange={(e) => { setState(e.target.value); setCity(""); }}>
-                <option value="">Select Region Province Link</option>
+                <option value="">Select State / Province</option>
                 {Object.keys(pakistanRegions).map((prov) => <option key={prov} value={prov}>{prov}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">Metropolitan Trading City</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">City</label>
               <select required disabled={!state} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:opacity-50" value={city} onChange={(e) => setCity(e.target.value)}>
-                <option value="">Select Core Sub-City Link</option>
+                <option value="">Select City</option>
                 {state && pakistanRegions[state].map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1">Physical Practice/Home Location Address</label>
-            <input type="text" required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={address} onChange={(e) => setAddress(e.target.value)} />
+            <label className="block text-xs font-bold text-slate-600 mb-1">Address</label>
+            <input type="text" required placeholder="Enter your full address" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
 
           {role === "doctor" && (
             <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-4 animate-fadeIn">
-              <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wider">Clinical Practice Meta Matrix Data</h3>
+              <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wider">Clinical Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-indigo-950 mb-1">Clinical Field Specialization</label>
-                  <input type="text" required className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={specialization} onChange={(e) => setSpecialization(e.target.value)} />
+                  <label className="block text-xs font-bold text-indigo-950 mb-1">Specialization</label>
+                  <select
+                    required
+                    className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500 text-slate-700 cursor-pointer appearance-none"
+                    value={specialization}
+                    onChange={(e) => setSpecialization(e.target.value)}
+                  >
+                    <option value="" disabled hidden>Select your medical specialization</option>
+                    <option value="Cardiology">Cardiology</option>
+                    <option value="Dermatology">Dermatology</option>
+                    <option value="Endocrinology">Endocrinology</option>
+                    <option value="Gastroenterology">Gastroenterology</option>
+                    <option value="General Physician">General Physician</option>
+                    <option value="Neurology">Neurology</option>
+                    <option value="Gynecology">Gynecology / Obstetrics</option>
+                    <option value="Orthopedics">Orthopedics</option>
+                    <option value="Pediatrics">Pediatrics (Child Specialist)</option>
+                    <option value="Psychiatry">Psychiatry</option>
+                    <option value="Ophthalmology">Ophthalmology (Eye Specialist)</option>
+                    <option value="Urology">Urology</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-indigo-950 mb-1">PMC Verification License Registration ID</label>
-                  <input type="text" required className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} />
+                  <label className="block text-xs font-bold text-indigo-950 mb-1">Medical License Number</label>
+                  <input type="text" required placeholder="License Number (e.g., 74291-P)" maxLength="7" className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-indigo-950 mb-1">Clinical Practice Fee (PKR)</label>
-                  <input type="number" required min="0" className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={appointmentFees} onChange={(e) => setAppointmentFees(e.target.value)} />
+                  <label className="block text-xs font-bold text-indigo-950 mb-1">Consultation Fee (PKR)</label>
+                  <input type="number" placeholder="Consultation fee" required min="0" className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={appointmentFees} onChange={(e) => setAppointmentFees(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-indigo-950 mb-1">Active Medical Field Practice Lifespan (Years)</label>
-                  <input type="number" required min="0" className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} />
+                  <label className="block text-xs font-bold text-indigo-950 mb-1">Experience (Years)</label>
+                  <input type="number" placeholder="Years of experience" required min="1" className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs outline-none focus:border-indigo-500" value={experienceYears} onChange={(e) => setExperienceYears(e.target.value)} />
                 </div>
               </div>
             </div>

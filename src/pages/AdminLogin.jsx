@@ -41,7 +41,7 @@ export default function AdminLogin() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased font-sans text-left">
       
       {/* LEFT ASPECT PANEL: BRANDING INFRASTRUCTURE BRAND ADVERTISEMENT */}
-      <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-indigo-900 via-blue-900 to-indigo-950 p-12 flex-col justify-between relative overflow-hidden">
+      <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-indigo-600 via-blue-500 to-indigo-600 p-12 flex-col justify-between relative overflow-hidden">
         
         {/* Futuristic Background Matrix Gradients */}
         <div className="absolute top-[-20%] right-[-20%] w-[70%] h-[70%] rounded-full bg-indigo-500/10 blur-[120px] pointer-events-none" />
@@ -50,29 +50,29 @@ export default function AdminLogin() {
         {/* Core Identity Banner */}
         <div className="flex items-center gap-3 relative z-10">
           <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-xl flex items-center justify-center font-bold text-lg text-white border border-white/20 shadow-inner">
-            🛡️
+            🏥
           </div>
           <div>
-            <h1 className="text-base font-black text-white tracking-tight leading-none">MedCare MasterSuite</h1>
-            <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mt-0.5">Enterprise Management</p>
+            <h1 className="text-[18px] font-black  tracking-tight leading-none">MedCare Core</h1>
+            <p className="text-[12px] text-white font-semibold uppercase tracking-wider mt-0.5">Admin Management</p>
           </div>
         </div>
 
         {/* Center Copy Statement */}
         <div className="max-w-md space-y-4 relative z-10 my-auto">
-          <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/20 text-[10px] font-extrabold tracking-widest uppercase px-2.5 py-1 rounded-md">
+          <span className="bg-indigo-500/20 text-white border border-indigo-400/20 text-[10px] font-extrabold tracking-widest uppercase px-2.5 py-1 rounded-md">
             Security Layer Alpha
           </span>
           <h2 className="text-3xl font-black text-white tracking-tight leading-tight">
-            Centralized Hospital Administration Operations Node.
+            Centralized Medical Administration Platform
           </h2>
-          <p className="text-xs text-indigo-200/80 font-medium leading-relaxed">
+          <p className="text-xs text-white font-medium leading-relaxed">
             Authorized administrative personnel security gateway clearance point. Access terminal tracking systems, roster configurations, and operational metrics layers globally.
           </p>
         </div>
 
         {/* Footer Metrics Indicator */}
-        <div className="flex justify-between items-center text-[11px] font-bold text-indigo-300/60 relative z-10 border-t border-white/10 pt-4">
+        <div className="flex justify-between items-center text-[11px] font-bold text-white relative z-10 border-t border-white/10 pt-4">
           <p>© 2026 MedCare Systems Inc.</p>
           <p className="tracking-mono font-mono">v4.2.1-SECURE</p>
         </div>
@@ -86,11 +86,11 @@ export default function AdminLogin() {
           <div className="space-y-2">
             {/* Display icon wrapper context on small devices only */}
             <div className="md:hidden w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-lg border border-indigo-100 mb-4">
-              🛡️
+              🏥
             </div>
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight">System Login</h3>
+            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Admin Login</h3>
             <p className="text-xs text-slate-400 font-medium">
-              Provide administration database security token credentials below to decrypt workspace controls.
+              Provide administration credentials to access the system
             </p>
           </div>
 
@@ -105,7 +105,7 @@ export default function AdminLogin() {
             {/* Input Node 1: Admin Username identifier field text input element wrapper */}
             <div className="space-y-1">
               <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Administration Access Handle
+                Administration Username
               </label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-xs">
@@ -126,7 +126,7 @@ export default function AdminLogin() {
             <div className="space-y-1">
               <div className="flex justify-between items-center">
                 <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Secure Access Code Token
+                  Security Code
                 </label>
               </div>
               <div className="relative">
@@ -148,7 +148,7 @@ export default function AdminLogin() {
             <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex items-start gap-2.5 text-[11px] text-slate-500 font-medium">
               <span className="text-xs text-indigo-500 mt-0.5">ℹ️</span>
               <p className="leading-normal">
-                This transaction point is strictly monitored. Failed input cycles record client telemetry signatures down to secure infrastructure logs.
+                Provide your admin credentials to access the dashboard.
               </p>
             </div>
 
@@ -161,10 +161,10 @@ export default function AdminLogin() {
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-b-white rounded-full animate-spin" />
-                  <span>Verifying Master Session Credentials...</span>
+                  <span>Verifying Credentials...</span>
                 </>
               ) : (
-                <span>Initialize Command Session</span>
+                <span>Login</span>
               )}
             </button>
           </form>
@@ -176,7 +176,7 @@ export default function AdminLogin() {
               onClick={() => navigate("/login")} 
               className="text-[11px] font-bold text-slate-400 hover:text-indigo-600 transition cursor-pointer bg-transparent border-none outline-none"
             >
-              ← Exit Terminal Workspace & Return to User Entrance Desk
+              ← Exit Admin Login & return to user login
             </button>
           </div>
 

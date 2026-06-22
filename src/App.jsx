@@ -95,7 +95,7 @@ function DashboardSwitchboard() {
           <div className="pt-2">
             <button
               onClick={() => logout && logout()}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
+              className="w-full py-2.5 bg-blue-800 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
             >
               Sign Out / Disconnect Session
             </button>

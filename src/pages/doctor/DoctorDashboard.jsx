@@ -25,12 +25,36 @@ export default function DoctorDashboard() {
     address: "",
     appointmentFees: 0
   });
+  const checkSlotExpired = (dayName, timeStr) => {
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const targetDayIndex = daysOfWeek.indexOf(dayName);
+    if (targetDayIndex === -1) return false;
 
+    const now = new Date();
+    const currentDayIndex = now.getDay();
+
+    // Calculate target date for this week's matching day
+    const targetDate = new Date(now);
+    const dayDifference = targetDayIndex - currentDayIndex;
+    targetDate.setDate(now.getDate() + dayDifference);
+
+    // Parse time format (e.g., "09:30 AM")
+    const [time, modifier] = timeStr.split(" ");
+    let [hours, minutes] = time.split(":").map(Number);
+
+    if (modifier === "PM" && hours < 12) hours += 12;
+    if (modifier === "AM" && hours === 12) hours = 0;
+
+    targetDate.setHours(hours, minutes, 0, 0);
+
+    // Returns true if the slot's timestamp is earlier than right now
+    return targetDate < now;
+  };
   const timeOptions = [
     "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-    "12:00 PM", "12:30 PM", "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM", 
+    "12:00 PM", "12:30 PM", "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM",
     "03:00 PM", "03:30 PM", "04:00 PM", "04:30 PM", "05:00 PM", "05:30 PM",
-    "06:00 PM", "06:30 PM", "07:00 PM", "07:30 PM", "08:00 PM", "08:30 PM", 
+    "06:00 PM", "06:30 PM", "07:00 PM", "07:30 PM", "08:00 PM", "08:30 PM",
     "09:00 PM", "09:30 PM"
   ];
 
@@ -54,6 +78,11 @@ export default function DoctorDashboard() {
     const unsubscribeDoc = onValue(docRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
+        if (data.status === "suspended") {
+          unsubscribeDoc(); // Clean up this specific listener manually before sign-out
+          logout();
+          return;
+        }
         setDoctorProfile({
           name: data.name || "",
           specialization: data.specialization || "",
@@ -111,7 +140,7 @@ export default function DoctorDashboard() {
       });
 
       setMessage(`✅ Target slot created for ${selectedDay} at ${selectedTime}!`);
-      setSelectedTime(""); 
+      setSelectedTime("");
     } catch (err) {
       console.error(err);
       setMessage("❌ Database sync error. Failed to save window.");
@@ -132,7 +161,7 @@ export default function DoctorDashboard() {
       updates[`users/${user.uid}/availability/${slotId}`] = null;
 
       await update(ref(db), updates);
-      setMessage("✅ Availability timeframe deleted completely.");
+      setMessage("✅ Slot is deleted completely.");
     } catch (err) {
       console.error("Error removing raw slot element:", err);
       setMessage("❌ Failed to cleanly purge slot tracking node.");
@@ -197,7 +226,7 @@ export default function DoctorDashboard() {
         updates[`appointments/${currentSlot.appointmentRef}/status`] = "completed";
         updates[`appointments/${currentSlot.appointmentRef}/completedAt`] = new Date().toISOString();
       }
-      
+
       updates[`users/${user.uid}/availability/${slotId}`] = null;
 
       await update(ref(db), updates);
@@ -256,8 +285,15 @@ export default function DoctorDashboard() {
     }
   };
 
-  const slotList = Object.values(slots);
+  const slotList = Object.values(slots).map(slot => {
+    const isPastDue = checkSlotExpired(slot.day, slot.time);
 
+    // If the time has passed and it's not already completed, flag it as expired
+    if (isPastDue && slot.status !== "completed") {
+      return { ...slot, status: "expired" };
+    }
+    return slot;
+  });
   const groupedSlots = slotList.reduce((acc, slot) => {
     const day = slot.day || "Unscheduled";
     if (!acc[day]) acc[day] = [];
@@ -266,9 +302,9 @@ export default function DoctorDashboard() {
   }, {});
 
   const appointmentSlots = slotList.filter(s => s.status === "booked" || s.status === "approved");
-  
+
   // 🟢 FIXED CALCULATION LAYER: Matches the standard 80% take-home pay factor
-  const payoutFactor = (Number(doctorProfile.appointmentFees) || 0) * 0.80; 
+  const payoutFactor = (Number(doctorProfile.appointmentFees) || 0) * 0.80;
 
   // 🟢 FIXED FILTER REFERENCE KEY: Swapped 'doctorUid' to 'doctorId' to correctly catch the node properties
   const verifiedDoctorAppointments = Object.values(allAppointments).filter(
@@ -278,10 +314,10 @@ export default function DoctorDashboard() {
   // Time Window Instantiations 
   const currentTimestamp = new Date();
   const midnightToday = new Date(new Date().setHours(0, 0, 0, 0));
-  
+
   const currentDayOfWeek = currentTimestamp.getDay();
   const startOfThisWeek = new Date(midnightToday);
-  startOfThisWeek.setDate(midnightToday.getDate() - currentDayOfWeek); 
+  startOfThisWeek.setDate(midnightToday.getDate() - currentDayOfWeek);
 
   const startOfThisMonth = new Date(currentTimestamp.getFullYear(), currentTimestamp.getMonth(), 1);
   const startOfThisYear = new Date(currentTimestamp.getFullYear(), 0, 1);
@@ -306,7 +342,7 @@ export default function DoctorDashboard() {
         <div className="flex items-center gap-4">
           <div className="text-right hidden sm:block">
             <p className="text-xs font-bold text-slate-800">{doctorProfile.name || "Practitioner"}</p>
-            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{doctorProfile.specialization || "General Medicine"}</p>
+            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">doctor</p>
           </div>
           <button onClick={logout} className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer border border-rose-100">Sign Out</button>
         </div>
@@ -314,7 +350,7 @@ export default function DoctorDashboard() {
 
       <div className="flex flex-1 flex-col md:flex-row max-w-7xl w-full mx-auto">
         <aside className="w-full md:w-64 bg-white border-r border-b md:border-b-0 border-slate-200 p-4 space-y-1 shrink-0">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">Management Framework</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">Management Console</p>
           <button onClick={() => { setActiveTab("dashboard"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "dashboard" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span>📊</span> Overview Dashboard</button>
           <button onClick={() => { setActiveTab("appointments"); setMessage(""); }} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "appointments" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}>
             <span className="flex items-center gap-3"><span>📅</span> Patient Appointments</span>
@@ -324,7 +360,7 @@ export default function DoctorDashboard() {
           </button>
           <button onClick={() => { setActiveTab("availability"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "availability" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span>⏱️</span> Availability Roster</button>
           <button onClick={() => { setActiveTab("revenue"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "revenue" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span>💸</span> Revenue Analytics</button>
-          <button onClick={() => { setActiveTab("profile"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "profile" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span>👤</span> Practitioner Profile</button>
+          <button onClick={() => { setActiveTab("profile"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "profile" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span>👤</span> Doctor Profile</button>
         </aside>
 
         <main className="flex-1 p-6 overflow-y-auto">
@@ -339,16 +375,16 @@ export default function DoctorDashboard() {
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Slots Allocation</p>
-                  <p className="text-2xl font-black text-slate-800 mt-2">{slotList.length} Nodes</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Slots</p>
+                  <p className="text-xl font-black text-slate-800 mt-2">{slotList.length} Slots</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pending Orders</p>
-                  <p className="text-2xl font-black text-indigo-600 mt-2">{appointmentSlots.filter(s => s.status === "booked").length} Awaiting</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pending Appointments</p>
+                  <p className="text-xl font-black text-indigo-600 mt-2">{appointmentSlots.filter(s => s.status === "booked").length} Appointments</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Net Realized Income (All-Time)</p>
-                  <p className="text-2xl font-black text-emerald-600 mt-2">Rs. {grandTotalProfit.toLocaleString()}</p>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Net Income (All-Time)</p>
+                  <p className="text-xl font-black text-emerald-600 mt-2">Rs. {grandTotalProfit.toLocaleString()}</p>
                 </div>
               </div>
 
@@ -365,11 +401,12 @@ export default function DoctorDashboard() {
                           <span className="mx-2 text-slate-300">|</span>
                           <span className="text-slate-500 font-medium">{slot.time}</span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider ${
-                          slot.status === "available" ? "bg-slate-100 text-slate-600" :
+                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider ${slot.status === "available" ? "bg-slate-100 text-slate-600" :
                           slot.status === "booked" ? "bg-amber-100 text-amber-700 animate-pulse" :
-                          slot.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"
-                        }`}>{slot.status}</span>
+                            slot.status === "completed" ? "bg-emerald-100 text-emerald-700" :
+                              slot.status === "expired" ? "bg-rose-100 text-rose-700 font-black border border-rose-200" : // 👈 New Expired Token Style
+                                "bg-indigo-100 text-indigo-700"
+                          }`}>{slot.status}</span>
                       </div>
                     ))}
                   </div>
@@ -381,12 +418,12 @@ export default function DoctorDashboard() {
           {activeTab === "appointments" && (
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-1">Patient Appointments Verification Roster</h3>
-                <p className="text-xs text-slate-400 mb-6 font-medium">Verify incoming practitioner allocation slot bindings and process final status.</p>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-1">Patient Appointments</h3>
+                <p className="text-xs text-slate-400 mb-6 font-medium">Approve incoming appointment requests and manage patient bookings.</p>
 
                 {appointmentSlots.length === 0 ? (
                   <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-xl">
-                    <p className="text-slate-400 text-xs font-medium">No assigned consultations or scheduling sequences found.</p>
+                    <p className="text-slate-400 text-xs font-medium">No appointments found.</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -399,14 +436,13 @@ export default function DoctorDashboard() {
                             </span>
                             <h4 className="text-sm font-black text-slate-800 mt-1.5">{slot.patientName || "Anonymous Patient"}</h4>
                           </div>
-                          <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded ${
-                            slot.status === "booked" ? "bg-amber-100 text-amber-700" : "bg-teal-100 text-teal-700"
-                          }`}>{slot.status === "booked" ? "Awaiting Response" : "Approved Consultation"}</span>
+                          <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded ${slot.status === "booked" ? "bg-amber-100 text-amber-700" : "bg-teal-100 text-teal-700"
+                            }`}>{slot.status === "booked" ? "Awaiting Response" : "Approved Consultation"}</span>
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-medium">
                           <div><p className="text-slate-400 text-[10px] font-bold uppercase">Age Profile</p><p className="text-slate-700 mt-0.5">{slot.patientAge || "N/A"} Years</p></div>
-                          <div><p className="text-slate-400 text-[10px] font-bold uppercase">Gender Class</p><p className="text-slate-700 mt-0.5 capitalize">{slot.patientGender || "Unspecified"}</p></div>
+                          <div><p className="text-slate-400 text-[10px] font-bold uppercase">Gender</p><p className="text-slate-700 mt-0.5 capitalize">{slot.patientGender || "Unspecified"}</p></div>
                           <div><p className="text-slate-400 text-[10px] font-bold uppercase">Contact Phone</p><p className="text-slate-700 mt-0.5">{slot.patientPhone || "N/A"}</p></div>
                           <div><p className="text-slate-400 text-[10px] font-bold uppercase">National CNIC ID</p><p className="text-slate-700 mt-0.5">{slot.patientCNIC || "N/A"}</p></div>
                         </div>
@@ -437,43 +473,49 @@ export default function DoctorDashboard() {
           {activeTab === "availability" && (
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4">Provision New Availability Slot</h3>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4">Create New Availability Slot</h3>
                 <form onSubmit={handleAddSlot} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1.5 uppercase">Day Selection</label>
                     <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)} required>
-                      <option value="">Select Target Day</option>
+                      <option value="">Select Day</option>
                       {dynamicDays.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1.5 uppercase">Time Window</label>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1.5 uppercase">Select Time</label>
                     <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} required>
                       <option value="">Select Time Slot</option>
                       {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  <button type="submit" disabled={loading} className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm">Generate Window Entry</button>
+                  <button type="submit" disabled={loading} className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-sm">Generate Slot</button>
                 </form>
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4">Active Calendars Mapping Matrix</h3>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4">Availability Slots</h3>
                 {Object.keys(groupedSlots).length === 0 ? (
-                  <p className="text-xs text-slate-400 font-medium py-4">No active rosters managed.</p>
+                  <p className="text-xs text-slate-400 font-medium py-4">No slots available.</p>
                 ) : (
                   <div className="space-y-6">
                     {Object.keys(groupedSlots).map((day) => (
                       <div key={day} className="border border-slate-100 rounded-xl p-4 bg-slate-50/30">
-                        <h4 className="text-xs font-black text-slate-800 uppercase border-b border-slate-100 pb-2 mb-3 tracking-wide">{day} Roster Grid</h4>
+                        <h4 className="text-xs font-black text-slate-800 uppercase border-b border-slate-100 pb-2 mb-3 tracking-wide">{day} Slots</h4>
                         <div className="flex flex-wrap gap-2">
                           {groupedSlots[day].map((slot) => (
                             <div key={slot.id} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-xs text-xs">
                               <span className="font-medium text-slate-700">{slot.time}</span>
-                              <span className={`w-1.5 h-1.5 rounded-full ${slot.status === "available" ? "bg-slate-300" : slot.status === "completed" ? "bg-emerald-500" : "bg-amber-500"}`} />
-                              {slot.status === "available" && (
+
+                              {/* 🟢 UPDATED: Color indicator dot now handles 'expired' status gracefully */}
+                              <span className={`w-1.5 h-1.5 rounded-full ${slot.status === "available" ? "bg-slate-300" :
+                                  slot.status === "completed" ? "bg-emerald-500" :
+                                    slot.status === "expired" ? "bg-rose-500 animate-pulse" : // 👈 Red pulse for expired
+                                      "bg-amber-500"
+                                }`} />
+
                                 <button onClick={() => handleDeleteSlot(slot.id)} className="text-slate-300 hover:text-rose-600 ml-1 text-[10px]">✕</button>
-                              )}
+                                
                             </div>
                           ))}
                         </div>
@@ -489,7 +531,7 @@ export default function DoctorDashboard() {
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-1">
-                  Micro-Period Profit Ledger
+                  Profit Ledger
                 </h3>
                 <p className="text-xs text-slate-400 mb-6 font-medium">
                   Realtime periodic overview of historical payouts after processing the flat 20% system commission deduction.
@@ -514,12 +556,12 @@ export default function DoctorDashboard() {
                   </div>
                 </div>
 
-                <div className="mt-6 p-4 bg-indigo-900 rounded-xl text-white flex justify-between items-center">
+                <div className="mt-6 p-4 bg-blue-900 rounded-xl text-white flex justify-between items-center">
                   <div>
-                    <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Gross Lifetime Intake (Net 80%)</p>
-                    <p className="text-xs text-indigo-100/80 mt-0.5">Calculated across {verifiedDoctorAppointments.length} overall completed diagnostic records.</p>
+                    <p className="text-[10px] font-bold text-white uppercase tracking-wider">Gross Lifetime Intake (Net 80%)</p>
+                    <p className="text-xs text-white-200 mt-0.5">Calculated across {verifiedDoctorAppointments.length} overall completed diagnostic records.</p>
                   </div>
-                  <p className="text-2xl font-black text-teal-300">Rs. {grandTotalProfit.toLocaleString()}</p>
+                  <p className="text-2xl font-black text-blue-200">Rs. {grandTotalProfit.toLocaleString()}</p>
                 </div>
               </div>
             </div>
@@ -528,58 +570,58 @@ export default function DoctorDashboard() {
           {activeTab === "profile" && (
             <div className="max-w-xl space-y-6">
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-5">Clinical Parameters Calibration</h3>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-5">Doctor profile</h3>
                 <form onSubmit={handleUpdateProfile} className="space-y-4 text-xs font-bold text-slate-600">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block mb-1.5 uppercase">Full Practitioner Name</label>
-                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.name} onChange={(e) => setDoctorProfile({...doctorProfile, name: e.target.value})} required />
+                      <label className="block mb-1.5 uppercase">Full Name</label>
+                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.name} onChange={(e) => setDoctorProfile({ ...doctorProfile, name: e.target.value })} required />
                     </div>
                     <div>
-                      <label className="block mb-1.5 uppercase">Specialization Branch</label>
-                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.specialization} onChange={(e) => setDoctorProfile({...doctorProfile, specialization: e.target.value})} required />
+                      <label className="block mb-1.5 uppercase">Specialization</label>
+                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.specialization} onChange={(e) => setDoctorProfile({ ...doctorProfile, specialization: e.target.value })} required />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block mb-1.5 uppercase">Age (Years)</label>
-                      <input type="number" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.age} onChange={(e) => setDoctorProfile({...doctorProfile, age: e.target.value})} required />
+                      <input type="number" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.age} onChange={(e) => setDoctorProfile({ ...doctorProfile, age: e.target.value })} required />
                     </div>
                     <div>
                       <label className="block mb-1.5 uppercase">Phone Number</label>
-                      <input type="tel" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.phone} onChange={(e) => setDoctorProfile({...doctorProfile, phone: e.target.value})} required />
+                      <input type="tel" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.phone} onChange={(e) => setDoctorProfile({ ...doctorProfile, phone: e.target.value })} required />
                     </div>
                     <div>
                       <label className="block mb-1.5 uppercase">Consultation Fees (PKR)</label>
-                      <input type="number" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.appointmentFees} onChange={(e) => setDoctorProfile({...doctorProfile, appointmentFees: e.target.value})} required />
+                      <input type="number" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.appointmentFees} onChange={(e) => setDoctorProfile({ ...doctorProfile, appointmentFees: e.target.value })} required />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block mb-1.5 uppercase">State / Province</label>
-                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.state} onChange={(e) => setDoctorProfile({...doctorProfile, state: e.target.value})} required />
+                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.state} onChange={(e) => setDoctorProfile({ ...doctorProfile, state: e.target.value })} required />
                     </div>
                     <div>
-                      <label className="block mb-1.5 uppercase">City Node</label>
-                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.city} onChange={(e) => setDoctorProfile({...doctorProfile, city: e.target.value})} required />
+                      <label className="block mb-1.5 uppercase">City</label>
+                      <input type="text" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none" value={doctorProfile.city} onChange={(e) => setDoctorProfile({ ...doctorProfile, city: e.target.value })} required />
                     </div>
                   </div>
                   <div>
-                    <label className="block mb-1.5 uppercase">Clinical Clinic Address</label>
-                    <textarea rows="3" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none resize-none" value={doctorProfile.address} onChange={(e) => setDoctorProfile({...doctorProfile, address: e.target.value})} required />
+                    <label className="block mb-1.5 uppercase">Address</label>
+                    <textarea rows="3" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none resize-none" value={doctorProfile.address} onChange={(e) => setDoctorProfile({ ...doctorProfile, address: e.target.value })} required />
                   </div>
                   <button type="submit" disabled={loading} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow hover:bg-indigo-700 transition">
-                    {loading ? "Updating Node..." : "Update Clinical Profile Data"}
+                    {loading ? "Updating..." : "Update Profile"}
                   </button>
                 </form>
               </div>
 
               <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 space-y-3">
                 <div>
-                  <h4 className="text-xs font-black text-rose-800 uppercase tracking-wider">Danger Zone: Purge System Core Account</h4>
-                  <p className="text-[11px] text-rose-600/90 font-medium mt-0.5">Your account will be deleted with all data in real-time storage ledger nodes.</p>
+                  <h4 className="text-xs font-black text-rose-800 uppercase tracking-wider">Danger: Delete Account</h4>
+                  <p className="text-[11px] text-rose-600/90 font-medium mt-0.5">Your account will be deleted with all data.</p>
                 </div>
-                <button type="button" disabled={loading} onClick={handleDeleteAccount} className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 text-white font-bold rounded-xl text-xs hover:bg-rose-700 transition">Delete Account Link Permanently</button>
+                <button type="button" disabled={loading} onClick={handleDeleteAccount} className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 text-white font-bold rounded-xl text-xs hover:bg-rose-700 transition">Delete Account Permanently</button>
               </div>
             </div>
           )}

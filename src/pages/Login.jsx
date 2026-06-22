@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../config/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { auth, db } from "../config/firebase";
+import { ref, get } from "firebase/database";
 
 export default function Login() {
   const { loginWithGoogle, user, refreshRole } = useAuth(); 
@@ -16,9 +17,32 @@ export default function Login() {
 
   useEffect(() => {
     if (user) {
-      navigate("/dashboard");
+      // Direct navigation is handled inside the form submission to prevent premature redirects for suspended doctors
+      // checking the active database configuration state first.
     }
-  }, [user, navigate]);
+  }, [user]);
+
+  // Centralized function to verify the user account status profile properties
+  const checkAccountStatusAndProceed = async (uid) => {
+    try {
+      const userSnapshot = await get(ref(db, `users/${uid}`));
+      
+      if (userSnapshot.exists()) {
+        const userData = userSnapshot.val();
+        
+        // INTERCEPT: If the doctor is suspended, block login, sign out, and show explicit message
+        if (userData.role === "doctor" && userData.status === "suspended") {
+          await signOut(auth); // Clear Firebase session state instantly
+          setError("You are suspended by admin because of violation of medical rules.");
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error("Error reading database node status configurations:", err);
+      return true; // Fallback pattern
+    }
+  };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
@@ -35,11 +59,17 @@ export default function Login() {
       if (isSignUp) {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await refreshRole(userCredential.user.uid);
+        navigate("/dashboard");
       } else {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        await refreshRole(userCredential.user.uid);
+        
+        // Verify active status parameter permissions before running dashboard redirects
+        const canAccess = await checkAccountStatusAndProceed(userCredential.user.uid);
+        if (canAccess) {
+          await refreshRole(userCredential.user.uid);
+          navigate("/dashboard");
+        }
       }
-      navigate("/dashboard");
     } catch (err) {
       console.error(err);
       if (err.code === "auth/email-already-in-use") {
@@ -60,8 +90,13 @@ export default function Login() {
     try {
       setError("");
       const result = await loginWithGoogle();
-      await refreshRole(result.user.uid);
-      navigate("/dashboard");
+      
+      // Verify active status parameter permissions for social auth logins
+      const canAccess = await checkAccountStatusAndProceed(result.user.uid);
+      if (canAccess) {
+        await refreshRole(result.user.uid);
+        navigate("/dashboard");
+      }
     } catch (err) {
       setError("Google authentication was canceled.");
       console.error(err);
@@ -96,7 +131,7 @@ export default function Login() {
             <svg className="w-4 h-4 text-rose-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
             </svg>
-            <span className="font-medium">{error}</span>
+            <span className="font-medium leading-relaxed">{error}</span>
           </div>
         )}
 
@@ -109,7 +144,7 @@ export default function Login() {
             <input 
               type="email" 
               required 
-              placeholder="e.g., doctor@clinic.com"
+              placeholder="Email Address"
               className="w-full px-3.5 py-2.5 bg-slate-50/50 hover:bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 focus:bg-white text-sm text-slate-800 shadow-inner transition placeholder-slate-400 font-medium"
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 

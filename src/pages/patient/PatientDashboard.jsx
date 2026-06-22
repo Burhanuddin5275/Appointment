@@ -4,6 +4,29 @@ import { db } from "../../config/firebase";
 import { ref, get, set, update, onValue, remove } from "firebase/database";
 import { deleteUser } from "firebase/auth";
 
+// ✅ Time validation helper utility to determine slot expiry parameters
+const checkSlotExpired = (dayName, timeStr) => {
+  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const targetDayIndex = daysOfWeek.indexOf(dayName);
+  if (targetDayIndex === -1) return false;
+
+  const now = new Date();
+  const currentDayIndex = now.getDay();
+  
+  const targetDate = new Date(now);
+  const dayDifference = targetDayIndex - currentDayIndex;
+  targetDate.setDate(now.getDate() + dayDifference);
+
+  const [time, modifier] = timeStr.split(" ");
+  let [hours, minutes] = time.split(":").map(Number);
+  
+  if (modifier === "PM" && hours < 12) hours += 12;
+  if (modifier === "AM" && hours === 12) hours = 0;
+
+  targetDate.setHours(hours, minutes, 0, 0);
+  return targetDate < now;
+};
+
 export default function PatientDashboard() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, appointments, profile
@@ -12,6 +35,9 @@ export default function PatientDashboard() {
   const [profileName, setProfileName] = useState("");
   const [profileAge, setProfileAge] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
+  // State trackers to read patient CNIC and Gender from database profiles
+  const [profileGender, setProfileGender] = useState("");
+  const [profileCNIC, setProfileCNIC] = useState("");
 
   // Doctor directory & search states
   const [allDoctors, setAllDoctors] = useState([]);
@@ -43,18 +69,34 @@ export default function PatientDashboard() {
         setProfileName(data.name || "");
         setProfileAge(data.age || "");
         setProfilePhone(data.phone || "");
+        // Store gender and cnic properties during user initialization
+        setProfileGender(data.gender || "");
+        setProfileCNIC(data.cnic || "");
       }
     });
   }, [user]);
 
-  // Sync Active Medical Directory Listings
+  // Sync Active Medical Directory Listings & Filter out doctors with no valid slots or only expired slots
   useEffect(() => {
     const usersRef = ref(db, "users");
     const unsubscribe = onValue(usersRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
         const doctorList = Object.keys(data)
-          .filter((key) => data[key].role === "doctor")
+          .filter((key) => {
+            const userDoc = data[key];
+            if (userDoc.role !== "doctor") return false;
+            
+            const totalSlots = Object.values(userDoc.availability || {});
+            if (totalSlots.length === 0) return false;
+
+            const hasUnexpiredSlots = totalSlots.some(slot => {
+              const isPastDue = checkSlotExpired(slot.day, slot.time);
+              return !isPastDue;
+            });
+
+            return hasUnexpiredSlots;
+          })
           .map((key) => ({ id: key, ...data[key] }));
 
         setAllDoctors(doctorList);
@@ -82,17 +124,29 @@ export default function PatientDashboard() {
       if (snapshot.exists()) {
         const data = snapshot.val();
 
+        // 1. Get all appointments belonging to this patient
         const rawUserAppointments = Object.values(data).filter(
           (apt) => apt.patientId === user.uid
         );
 
-        const verifiedActiveAppointments = rawUserAppointments.filter((apt) => {
+        // 2. Map and crosscheck live statuses straight from the active doctor data maps
+        const verifiedActiveAppointments = rawUserAppointments.map((apt) => {
           const matchingDoctor = allDoctors.find((d) => d.id === apt.doctorId);
+          
           const slotKey = `${apt.day}-${apt.timeSlot.replace(/[: ]/g, "")}`;
           const matchingSlot = matchingDoctor?.availability?.[slotKey];
 
-          return matchingSlot && (matchingSlot.status === "booked" || matchingSlot.status === "approved");
-        });
+          // Grab direct status from the doctor's slot object mapping tree
+          const liveStatus = matchingSlot?.status || apt.status || "pending";
+
+          return {
+            ...apt,
+            liveStatus: liveStatus
+          };
+        }).filter(
+          // Doctor logic applies same filtering constraints by status tokens 
+          (apt) => apt.liveStatus === "booked" || apt.liveStatus === "approved"
+        );
 
         setMyAppointments(verifiedActiveAppointments);
       } else {
@@ -102,7 +156,7 @@ export default function PatientDashboard() {
     return () => unsubscribe();
   }, [user, allDoctors]);
 
-  // Handle Directory Evaluation Filters
+  // Handle Directory Evaluation Filters & Auto-Close panel when selected doctor goes offline
   useEffect(() => {
     let output = allDoctors;
     if (searchQuery.trim() !== "") {
@@ -114,7 +168,14 @@ export default function PatientDashboard() {
       output = output.filter((doc) => doc.specialization === selectedSpecialty);
     }
     setFilteredDoctors(output);
-  }, [searchQuery, selectedSpecialty, allDoctors]);
+
+    // Close the calendar panel grid if another person books the last slot and drops the doctor from the list
+    if (selectedDoctor && !allDoctors.some(d => d.id === selectedDoctor.id)) {
+      setSelectedDoctor(null);
+      setChosenDay("");
+      setChosenSlotId("");
+    }
+  }, [searchQuery, selectedSpecialty, allDoctors, selectedDoctor]);
 
   const handleSelectDoctor = (doctorProfile) => {
     setSelectedDoctor(doctorProfile);
@@ -123,9 +184,15 @@ export default function PatientDashboard() {
     setDoctorAvailability(doctorProfile.availability || {});
   };
 
+  // Patients will NEVER see expired slots because we drop them entirely from the roster object array
   const slotsByDay = Object.values(doctorAvailability).reduce((acc, slot) => {
-    if (!acc[slot.day]) acc[slot.day] = [];
-    acc[slot.day].push(slot);
+    const isPastDue = checkSlotExpired(slot.day, slot.time);
+
+    // Only let the patient see it if the slot time has NOT passed yet
+    if (!isPastDue) {
+      if (!acc[slot.day]) acc[slot.day] = [];
+      acc[slot.day].push(slot);
+    }
     return acc;
   }, {});
 
@@ -137,7 +204,10 @@ export default function PatientDashboard() {
       await update(ref(db, `users/${user.uid}`), {
         name: profileName,
         age: profileAge,
-        phone: profilePhone
+        phone: profilePhone,
+        // Save gender and cnic options on profile modifications updates
+        gender: profileGender,
+        cnic: profileCNIC
       });
       setMessage("✅ Patient profile fields updated completely.");
     } catch (err) {
@@ -156,11 +226,9 @@ export default function PatientDashboard() {
 
     setLoading(true);
     try {
-      // 1. Scan and drop linked appointments inside root dashboard path before running identity erasure
       if (myAppointments && myAppointments.length > 0) {
         for (const apt of myAppointments) {
           const slotKey = `${apt.day}-${apt.timeSlot.replace(/[: ]/g, "")}`;
-          // Return the specific doctor slot mapping block back to available state
           await set(ref(db, `users/${apt.doctorId}/availability/${slotKey}`), {
             id: slotKey,
             day: apt.day,
@@ -175,17 +243,12 @@ export default function PatientDashboard() {
             appointmentRef: null,
             symptoms: null
           });
-          // Remove global tracking root entry 
           await remove(ref(db, `appointments/${apt.id}`));
         }
       }
 
-      // 2. Erase core data structure branch node from Realtime Database
       await remove(ref(db, `users/${user.uid}`));
-
-      // 3. Clear application authentication record context
       await deleteUser(user);
-
       alert("Patient data parameters and system access keys cleared successfully.");
     } catch (err) {
       console.error(err);
@@ -218,7 +281,7 @@ export default function PatientDashboard() {
         <div className="flex items-center gap-4">
           <div className="text-right hidden sm:block">
             <p className="text-xs font-bold text-slate-800">{profileName || "Patient Session"}</p>
-            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Account ID: Patient</p>
+            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Patient</p>
           </div>
           <button onClick={logout} className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer border border-rose-100">Sign Out</button>
         </div>
@@ -228,7 +291,7 @@ export default function PatientDashboard() {
 
         {/* SIDEBAR NAVIGATION */}
         <aside className="w-full md:w-64 bg-white border-r border-b md:border-b-0 border-slate-200 p-4 space-y-1 shrink-0">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">User Workspace</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">Management Console</p>
           <button onClick={() => { setActiveTab("dashboard"); setMessage(""); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "dashboard" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}><span className="text-base">🔍</span> Find & Book Doctor</button>
           <button onClick={() => { setActiveTab("appointments"); setMessage(""); }} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition ${activeTab === "appointments" ? "bg-indigo-50 text-indigo-600 border border-indigo-100/50" : "text-slate-600 hover:bg-slate-50"}`}>
             <span className="flex items-center gap-3"><span className="text-base">📋</span> My Appointments</span>
@@ -266,9 +329,9 @@ export default function PatientDashboard() {
                 <div className="space-y-3">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider pl-1">Available Medical Consultants</h3>
                   {filteredDoctors.length === 0 ? (
-                    <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl shadow-sm"><span className="text-3xl">🏜️</span><p className="text-xs text-slate-400 font-bold mt-3">No specialists matched your parameters.</p></div>
+                    <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl shadow-sm mt-2"><span className="text-3xl">🏜️</span><p className="text-xs text-slate-400 font-bold mt-3">No specialists matched your parameters.</p></div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                       {filteredDoctors.map((doc) => (
                         <div key={doc.id} className={`p-4 bg-white border rounded-2xl shadow-sm flex flex-col justify-between transition ${selectedDoctor?.id === doc.id ? "border-indigo-500 ring-2 ring-indigo-500/10" : "border-slate-200"}`}>
                           <div>
@@ -291,8 +354,8 @@ export default function PatientDashboard() {
 
               {/* ACTION SCHEDULER WORKSPACE */}
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 h-fit">
-                <h3 className="text-sm font-black text-slate-800 mb-0.5">Appointment Request Node</h3>
-                <p className="text-[11px] text-slate-400 mb-4">Select a clinician profile card to run query diagnostics check logs.</p>
+                <h3 className="text-sm font-black text-slate-800 mb-0.5">Appointment Request</h3>
+                <p className="text-[11px] text-slate-400 mb-4">Select a doctor to request an appointment</p>
                 {selectedDoctor ? (
                   <form onSubmit={async (e) => {
                     e.preventDefault();
@@ -301,12 +364,41 @@ export default function PatientDashboard() {
                     setLoading(true);
                     try {
                       const appointmentId = `APT-${Date.now()}`;
+                      
+                      // Added patientGender and patientCNIC nodes into global historic appointments tree path
                       await set(ref(db, `appointments/${appointmentId}`), {
-                        id: appointmentId, patientId: user.uid, patientName: profileName || "Patient", patientPhone: profilePhone || "N/A", patientAge: profileAge || "N/A", patientEmail: user.email, doctorId: selectedDoctor.id, doctorName: selectedDoctor.name, specialization: selectedDoctor.specialization, address: selectedDoctor.address || "Main Clinic Desk", appointmentFees: selectedDoctor.appointmentFees || 0, day: targetSlot.day, timeSlot: targetSlot.time, symptoms: symptoms, createdAt: new Date().toISOString()
+                        id: appointmentId, 
+                        patientId: user.uid, 
+                        patientName: profileName || "Patient", 
+                        patientPhone: profilePhone || "N/A", 
+                        patientAge: profileAge || "N/A", 
+                        patientGender: profileGender || "Unspecified",
+                        patientCNIC: profileCNIC || "N/A",
+                        patientEmail: user.email, 
+                        doctorId: selectedDoctor.id, 
+                        doctorName: selectedDoctor.name, 
+                        specialization: selectedDoctor.specialization, 
+                        address: selectedDoctor.address || "Main Clinic Desk", 
+                        appointmentFees: selectedDoctor.appointmentFees || 0, 
+                        day: targetSlot.day, 
+                        timeSlot: targetSlot.time, 
+                        symptoms: symptoms, 
+                        createdAt: new Date().toISOString()
                       });
+
+                      // Added patientGender and patientCNIC allocations into doctor availability subnode tree path
                       await update(ref(db, `users/${selectedDoctor.id}/availability/${chosenSlotId}`), {
-                        status: "booked", bookedBy: user.uid, patientName: profileName || "Patient", patientPhone: profilePhone || "N/A", patientAge: profileAge || "N/A", appointmentRef: appointmentId, symptoms: symptoms
+                        status: "booked", 
+                        bookedBy: user.uid, 
+                        patientName: profileName || "Patient", 
+                        patientPhone: profilePhone || "N/A", 
+                        patientAge: profileAge || "N/A", 
+                        patientGender: profileGender || "Unspecified",
+                        patientCNIC: profileCNIC || "N/A",
+                        appointmentRef: appointmentId, 
+                        symptoms: symptoms
                       });
+
                       setMessage(`🎉 Request published! Awaiting verification for ${targetSlot.day} at ${targetSlot.time}.`);
                       setSymptoms(""); setSelectedDoctor(null); setChosenDay(""); setChosenSlotId("");
                     } catch (err) { console.error(err); setMessage("❌ Core booking process faulted."); } finally { setLoading(false); }
@@ -316,15 +408,15 @@ export default function PatientDashboard() {
                       <span className="font-bold text-indigo-900">{selectedDoctor.name}</span>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">1. Choose Operational Day</label>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">1. Choose Appointment Day</label>
                       <select required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium cursor-pointer" value={chosenDay} onChange={(e) => { setChosenDay(e.target.value); setChosenSlotId(""); }}>
-                        <option value="">-- Choose Day Window --</option>
+                        <option value="">-- Choose Day --</option>
                         {Object.keys(slotsByDay).map((day) => <option key={day} value={day}>{day}</option>)}
                       </select>
                     </div>
                     {chosenDay && (
                       <div className="space-y-2 animate-fadeIn">
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">2. Select Session Window</label>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">2. Select Time Slot</label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {slotsByDay[chosenDay]?.map((slot) => {
                             const status = getSlotStatusForUser(slot);
@@ -353,7 +445,7 @@ export default function PatientDashboard() {
                     )}
                   </form>
                 ) : (
-                  <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-2xl"><p className="text-xs text-slate-400 font-medium px-4">Click "Select & Open Schedule" on an item slot card to view metrics logs.</p></div>
+                  <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-2xl"><p className="text-xs text-slate-400 font-medium px-4">Click "Select & Open Schedule" on a doctor card to request an appointment</p></div>
                 )}
               </div>
             </div>
@@ -362,19 +454,19 @@ export default function PatientDashboard() {
           {/* VIEWPORT AREA 2: RESERVED APPOINTMENT LEDGER SECTIONS */}
           {activeTab === "appointments" && (
             <div className="space-y-6 animate-fadeIn">
-              <h3 className="text-base font-black text-slate-800">Your Appointment History Ledger</h3>
+              <h3 className="text-base font-black text-slate-800">Your Appointment</h3>
               {myAppointments.length === 0 ? (
                 <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl shadow-sm"><span className="text-3xl">📭</span><p className="text-xs text-slate-400 font-bold mt-3">No active appointments found.</p></div>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
                   {myAppointments.map((apt) => {
-                    // Look up the doctor's full live dataset profile records
                     const docInfo = allDoctors.find((d) => d.id === apt.doctorId);
-                    const isApproved = docInfo?.status === "approved";
+                    
+                    // ✅ FIXED: Using direct structural slot state derived above
+                    const isApproved = apt.liveStatus === "approved"; 
 
                     return (
                       <div key={apt.id} className={`p-5 bg-white border rounded-xl shadow-sm space-y-3.5 border-l-4 ${isApproved ? 'border-l-emerald-500' : 'border-l-amber-500'}`}>
-                        {/* Header Row: Doctor Name & Specialty */}
                         <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-2">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-black text-slate-800">Dr. {apt.doctorName || docInfo?.name}</span>
@@ -386,16 +478,17 @@ export default function PatientDashboard() {
                             <span>📅 {apt.day}</span>
                             <span className="text-slate-300">|</span>
                             <span>⏱️ {apt.timeSlot}</span>
+                            
+                            {/* ✅ UPDATED: Matching badge mapping constraint (Pending/Approved) */}
                             <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded ml-1 ${isApproved
-                                ? "bg-emerald-100 text-emerald-700 border border-emerald-200/60"
-                                : "bg-amber-100 text-amber-700 border border-amber-200/60 animate-pulse"
+                              ? "bg-emerald-100 text-emerald-700 border border-emerald-200/60"
+                              : "bg-amber-100 text-amber-700 border border-amber-200/60 animate-pulse"
                               }`}>
-                              {apt.status || "pending"}
+                              {isApproved ? "Approved" : "Pending"}
                             </span>
                           </div>
                         </div>
 
-                        {/* Metrics Data Grid Layout Row */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3 text-[11px] text-slate-600 font-medium bg-slate-50 p-3.5 rounded-xl border border-slate-150">
                           <div>
                             <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider">Age / Gender</p>
@@ -419,7 +512,6 @@ export default function PatientDashboard() {
                           </div>
                         </div>
 
-                        {/* Detailed Clinic Address */}
                         <div className="text-[11px] text-slate-600 font-medium">
                           <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider">Clinic Address</p>
                           <p className="text-slate-700 mt-0.5">{docInfo?.address || apt.address || "Main Clinic Desk"}</p>
@@ -432,15 +524,13 @@ export default function PatientDashboard() {
             </div>
           )}
 
-          {/* VIEWPORT AREA 3: LIMITED CLINICAL PATIENT PROFILE */}
+          {/* VIEWPORT AREA 3: CLINICAL PATIENT PROFILE */}
           {activeTab === "profile" && (
             <div className="space-y-6 max-w-xl animate-fadeIn">
-
-              {/* FORM SYSTEM: DATA MANAGER NODE */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
                 <div>
-                  <h3 className="text-base font-black text-slate-800">Patient Personal Parameters</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Maintain core personal data layout nodes to ensure accurate clinical logging outputs.</p>
+                  <h3 className="text-base font-black text-slate-800">Patient Profile</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Update your personal information here</p>
                 </div>
 
                 <form onSubmit={handleUpdateProfile} className="space-y-4">
@@ -451,12 +541,28 @@ export default function PatientDashboard() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Age (Years)</label>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Age</label>
                       <input type="number" min="1" max="120" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-500" value={profileAge} onChange={(e) => setProfileAge(e.target.value)} required />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Contact Phone Number</label>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Contact Number</label>
                       <input type="tel" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-500" value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} required />
+                    </div>
+                  </div>
+
+                  {/* UI input fields inside the profile tab configuration layout matrix */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Gender</label>
+                      <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium cursor-pointer outline-none focus:border-indigo-500" value={profileGender} onChange={(e) => setProfileGender(e.target.value)} required>
+                        <option value="">Select Gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">CNIC / ID Number</label>
+                      <input type="text" placeholder="e.g., 37405-XXXXXXX-X" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-500" value={profileCNIC} onChange={(e) => setProfileCNIC(e.target.value)} required />
                     </div>
                   </div>
 
@@ -469,9 +575,9 @@ export default function PatientDashboard() {
               {/* ACCOUNT DELETION BLOCK */}
               <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 space-y-3">
                 <div>
-                  <h4 className="text-xs font-black text-rose-800 uppercase tracking-wider">Danger Zone: Unlink Patient Identity</h4>
+                  <h4 className="text-xs font-black text-rose-800 uppercase tracking-wider">Danger: Delete Account</h4>
                   <p className="text-[11px] text-rose-600/90 font-medium mt-0.5">
-                    Your account will be deleted with all its data in realtime database. Any active pending consultation request sequences inside your network log will be wiped.
+                    Your account will be deleted with all data.
                   </p>
                 </div>
                 <button
@@ -480,13 +586,11 @@ export default function PatientDashboard() {
                   onClick={handleDeletePatientAccount}
                   className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 text-white border border-rose-700 font-bold rounded-xl text-xs shadow-sm hover:bg-rose-700 transition cursor-pointer disabled:opacity-50"
                 >
-                  Delete Account Link Permanently
+                  Delete Account Permanently
                 </button>
               </div>
-
             </div>
           )}
-
         </main>
       </div>
     </div>
